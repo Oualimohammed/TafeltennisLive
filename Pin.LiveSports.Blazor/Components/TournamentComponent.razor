@@ -1,0 +1,270 @@
+﻿@using Pin.LiveSports.Core.DTOs
+@inject ITournamentService TournamentService
+@inject IPlayerService PlayerService
+
+@if (tournaments == null || allPlayers == null)
+{
+    <p>Loading data...</p>
+}
+else
+{
+    <div class="tournament-management">
+        <button class="btn btn-success mb-3" @onclick="ShowAddModal">
+            <i class="bi bi-plus"></i> Add Tournament
+        </button>
+
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Location</th>
+                    <th>Date</th>
+                    <th>Aantal-Players</th>
+                    <th>Players-Namen</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var tournament in tournaments)
+                {
+                    <tr>
+                        <td>@tournament.Name</td>
+                        <td>@tournament.Location</td>
+                        <td>@tournament.StartDate.ToShortDateString()</td>
+                        <td>
+                            <strong> @(tournament.Players?.Count ?? 0)</strong>
+
+                        </td>
+                        <td>
+                            <br />
+                            @if (tournament.Players != null && tournament.Players.Any())
+                            {
+                                @foreach (var player in tournament.Players.Take(3))
+                                {
+                                    <span class="badge bg-primary">@player.Name (@player.Country)</span><br />
+                                }
+
+                                @if (tournament.Players.Count > 3)
+                                {
+
+                                    @if (showMorePlayersId == tournament.Id)
+                                    {
+                                        <div class="mt-2">
+                                            @foreach (var player in tournament.Players.Skip(3))
+                                            {
+                                                <span class="badge bg-primary">@player.Name (@player.Country)</span><br />
+                                            }
+                                        </div>
+                                    }
+                                    <button class="btn btn-outline-primary btn-sm mt-2" @onclick="() => ToggleMorePlayers(tournament.Id)">
+                                        <i class="bi bi-eye">
+                                        </i> @(showMorePlayersId == tournament.Id ? "Minder spelers tonen" : "Meer spelers tonen")
+                                    </button>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-muted fst-italic">Geen spelers toegevoegd</span>
+                            }
+                        </td>
+                        <td>
+                            <button class="btn btn-warning btn-sm" @onclick="() => ShowEditModal(tournament)">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                            <button class="btn btn-danger btn-sm ms-2" @onclick="() => DeleteTournament(tournament.Id)">
+                                <i class="bi bi-trash"></i> Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <!-- Edit/Add Modal -->
+        @if (showModal)
+        {
+            <div class="modal-backdrop show"></div>
+            <div class="modal show d-block" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">@(currentTournament.Id == 0 ? "Add Tournament" : "Edit Tournament")</h5>
+                            <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <EditForm Model="currentTournament" OnValidSubmit="HandleSave">
+                                <DataAnnotationsValidator />
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Name*</label>
+                                            <InputText @bind-Value="currentTournament.Name" class="form-control" />
+                                            <ValidationMessage For="@(() => currentTournament.Name)" />
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Location</label>
+                                            <InputText @bind-Value="currentTournament.Location" class="form-control" />
+                                            <ValidationMessage For="@(() => currentTournament.Location)" />
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Date*</label>
+                                            <InputDate @bind-Value="currentTournament.StartDate" class="form-control" />
+                                            <ValidationMessage For="@(() => currentTournament.StartDate)" />
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Players</label>
+                                            <div class="player-select-box">
+                                                @foreach (var player in allPlayers)
+                                                {
+                                                    <div class="form-check">
+                                                        <input type="checkbox"
+                                                               class="form-check-input"
+                                                               id="@($"player-{player.Id}")"
+                                                               checked="@IsPlayerSelected(player.Id)"
+                                                               @onchange="(e) => TogglePlayerSelection(player.Id, e.Value)" />
+                                                        <label class="form-check-label" for="@($"player-{player.Id}")">
+                                                            @player.Name (@player.Country)
+                                                        </label>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="modal-footer">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-save"></i> Save
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </EditForm>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<TournamentDTO> tournaments;
+    private List<PlayerDTO> allPlayers;
+    private TournamentDTO currentTournament = new();
+    private bool showModal = false;
+    private int? showMorePlayersId = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        tournaments = (await TournamentService.GetAllTournamentAsync()).ToList();
+        allPlayers = (await PlayerService.GetAllPlayersAsync()).ToList();
+    }
+
+    private void ShowAddModal()
+    {
+        currentTournament = new TournamentDTO
+        {
+            StartDate = DateTime.Today,
+            Players = new List<PlayerDTO>()
+        };
+        showModal = true;
+    }
+
+    private void ShowEditModal(TournamentDTO tournament)
+    {
+        currentTournament = new TournamentDTO
+        {
+            Id = tournament.Id,
+            Name = tournament.Name,
+            Location = tournament.Location,
+            StartDate = tournament.StartDate,
+            Players = tournament.Players?.ToList() ?? new List<PlayerDTO>()
+        };
+        showModal = true;
+    }
+
+    private bool IsPlayerSelected(int playerId)
+    {
+        return currentTournament.Players?.Any(p => p.Id == playerId) ?? false;
+    }
+
+    private void TogglePlayerSelection(int playerId, object isChecked)
+    {
+        currentTournament.Players ??= new List<PlayerDTO>();
+        var player = allPlayers.FirstOrDefault(p => p.Id == playerId);
+
+        if (isChecked is bool selected && selected)
+        {
+            if (!currentTournament.Players.Any(p => p.Id == playerId))
+                currentTournament.Players.Add(player);
+        }
+        else
+        {
+            currentTournament.Players.RemoveAll(p => p.Id == playerId);
+        }
+    }
+
+    private async Task HandleSave()
+    {
+        try
+        {
+            if (currentTournament.Id == 0)
+            {
+                var tournamentToAdd = new TournamentDTO
+                {
+                    Name = currentTournament.Name,
+                    Location = currentTournament.Location,
+                    StartDate = currentTournament.StartDate,
+                    Players = currentTournament.Players?
+                        .Select(p => new PlayerDTO { Id = p.Id }).ToList()
+                };
+                await TournamentService.AddTournamentAsync(tournamentToAdd);
+            }
+            else
+            {
+                await TournamentService.UpdateTournamentAsync(currentTournament);
+            }
+
+            await LoadData();
+            showModal = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving tournament: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteTournament(int id)
+    {
+        await TournamentService.DeleteTournamentAsync(id);
+        await LoadData();
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+    }
+
+    private void ToggleMorePlayers(int tournamentId)
+    {
+        if (showMorePlayersId == tournamentId)
+        {
+            showMorePlayersId = null;
+        }
+        else
+        {
+            showMorePlayersId = tournamentId;
+        }
+    }
+}

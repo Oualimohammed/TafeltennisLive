@@ -1,0 +1,93 @@
+﻿@using Microsoft.AspNetCore.Components
+@using Pin.LiveSports.Core.DTOs
+@inject IMatchService MatchService
+@inject NavigationManager Navigation
+
+<h4>📋 Geplande Wedstrijden</h4>
+
+@if (isLoading)
+{
+    <div>Wedstrijden laden...</div>
+}
+else if (plannedMatches == null || plannedMatches.Count == 0)
+{
+    <div>Geen geplande wedstrijden gevonden.</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Toernooi</th>
+                <th>Speler 1</th>
+                <th>Speler 2</th>
+                <th>Locatie</th>
+                <th>Starttijd</th>
+                <th>Status</th>
+                <th>Acties</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var match in plannedMatches)
+            {
+                <tr>
+                    <td>@match.TournamentName</td>
+                    <td>@match.Player1Name</td>
+                    <td>@match.Player2Name</td>
+                    <td>@match.TafelTennisZaal</td>
+                    <td>@match.StartTime.ToString("g")</td>
+                    <td>@match.Status</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" @onclick="() => NavigateToVerslaggeving(match.Id)">
+                            Verslaggeving
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<MatchDTO> plannedMatches = new();
+    private bool isLoading = true;
+
+    [Parameter]
+    public EventCallback<int> OnMatchSelected { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMatches();
+    }
+
+    private async Task LoadMatches()
+    {
+        try
+        {
+            isLoading = true;
+            plannedMatches = (await MatchService.GetAllMatchesAsync())
+                       .Where(m => m.Status == "Gepland")
+                       .ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden wedstrijden: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    public async Task RefreshMatches()
+    {
+        await LoadMatches();
+    }
+
+    private void NavigateToVerslaggeving(int matchId)
+    {
+        Navigation.NavigateTo($"/verslaggevingWedstrijd/{matchId}");
+    }
+
+}
