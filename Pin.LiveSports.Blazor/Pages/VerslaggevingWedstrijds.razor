@@ -1,0 +1,65 @@
+﻿@code {
+
+}
+@page "/verslaggevingWedstrijd"
+@inject IMatchService MatchService
+
+<h3>Verslaggeving Wedstrijden</h3>
+
+@if (isLoading)
+{
+    <div class="alert alert-info">Laden...</div>
+}
+else if (matches.Count == 0)
+{
+    <div class="alert alert-warning">Geen wedstrijden gevonden.</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Speler 1</th>
+                <th>Speler 2</th>
+                <th>Toernooi</th>
+                <th>Status</th>
+                <th>Starttijd</th>
+                <th>Actie</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var match in matches)
+            {
+                <tr>
+                    <td>@match.Player1Name</td>
+                    <td>@match.Player2Name</td>
+                    <td>@match.TournamentName</td>
+                    <td><span class="badge @GetStatusBadgeClass(match.Status)">@match.Status</span></td>
+                    <td>@match.StartTime.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>
+                        <a class="btn btn-primary btn-sm" href="/verslaggevingWedstrijd/@match.Id">Bekijk</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<MatchDTO> matches = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        matches = (await MatchService.GetAllMatchesAsync()).ToList(); 
+        isLoading = false;
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Gepland" => "bg-secondary",
+        "Lopend" => "bg-primary",
+        "Afgesloten" => "bg-success",
+        _ => "bg-dark"
+    };
+}

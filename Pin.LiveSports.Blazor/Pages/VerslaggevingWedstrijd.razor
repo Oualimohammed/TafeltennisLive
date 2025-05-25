@@ -1,0 +1,238 @@
+﻿@page "/verslaggevingWedstrijd/{MatchId}"
+@using Microsoft.AspNetCore.SignalR
+@inject IMatchService MatchService
+@inject IEventService EventService
+@inject IHubContext<LiveMatchHub> HubContext
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+@using Pin.LiveSports.Blazor.Components
+
+@*<PlannedMatches @ref="plannedMatchesComponent" />
+*@
+@if (isLoading)
+{
+    <div class="alert alert-info">Bezig met laden...</div>
+}
+else if (match == null)
+{
+    <div class="alert alert-danger">Wedstrijd niet gevonden.</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>@match.Player1Name vs @match.Player2Name</h4>
+            <div class="text-muted">
+                @match.TournamentName - @match.TafelTennisZaal<br />
+                Start: @match.StartTime.ToString("f")
+                <span class="badge @GetStatusBadgeClass() float-end">@match.Status</span>
+            </div>
+        </div>
+
+        <div class="card-body">
+
+            @if (match.Status == "Gepland")
+            {
+                <div class="alert alert-warning">
+                    Wedstrijd nog niet gestart.
+                    <button class="btn btn-success" @onclick="StartMatch">Start Wedstrijd</button>
+                </div>
+            }
+            else if (match.Status == "Afgesloten")
+            {
+                <div class="alert alert-success">
+                    <h5>Wedstrijd afgesloten</h5>
+                    <p>Winnaar: @(match.Player1Score > match.Player2Score ? match.Player1Name : match.Player2Name)</p>
+                    <p>Eindstand: @match.ScoreDisplay</p>
+                </div>
+            }
+            else
+            {
+                <!-- Score -->
+                <div class="score-display text-center mb-4">
+                    <h3 class="@(match.IsMatchPoint ? "text-danger" : "")">
+                        @match.Player1Score - @match.Player2Score (Set @match.CurrentSet)
+                    </h3>
+                    <h5>Sets: @match.Player1Sets - @match.Player2Sets</h5>
+                    @if (match.IsMatchPoint)
+                    {
+                        <div class="alert alert-warning mt-2">
+                            Matchpoint voor @(match.Player1Score > match.Player2Score ? match.Player1Name : match.Player2Name)
+                        </div>
+                    }
+                </div>
+
+                <!-- Punten -->
+                <div class="mb-4 text-center">
+                    <button class="btn btn-success me-2" @onclick="() => AddPoint(match.Player1Id)">Punt voor @match.Player1Name</button>
+                    <button class="btn btn-danger" @onclick="() => AddPoint(match.Player2Id)">Punt voor @match.Player2Name</button>
+                </div>
+
+                <!-- Speciale acties -->
+                <div class="mb-4">
+                    <h5>Speciale acties</h5>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-warning" @onclick="() => AddSpecialEvent(EventType.Timeout, match.Player1Id)">Timeout @match.Player1Name</button>
+                        <button class="btn btn-warning" @onclick="() => AddSpecialEvent(EventType.Timeout, match.Player2Id)">Timeout @match.Player2Name</button>
+                        <button class="btn btn-info" @onclick="() => AddSpecialEvent(EventType.Let, null)">Let</button>
+                        <button class="btn btn-secondary" @onclick="() => AddSpecialEvent(EventType.Fault, match.Player1Id)">Fout @match.Player1Name</button>
+                        <button class="btn btn-secondary" @onclick="() => AddSpecialEvent(EventType.Fault, match.Player2Id)">Fout @match.Player2Name</button>
+                    </div>
+                </div>
+
+                <!-- Event log -->
+                <div>
+                    <h5>Gebeurtenissen</h5>
+                    @if (!events.Any())
+                    {
+                        <p>Nog geen gebeurtenissen</p>
+                    }
+                    else
+                    {
+                        @foreach (var e in events.OrderByDescending(e => e.Timestamp))
+                        {
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between">
+                                    <span class="fw-bold @GetEventColor(e.EventType)">@e.EventType</span>
+                                    <small>@e.Timestamp.ToLocalTime():HH:mm</small>
+                                </div>
+                                <div>@(e.PlayerId.HasValue ? $"{GetPlayerName(e.PlayerId.Value)}: {e.Description}" : e.Description)</div>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private PlannedMatches? plannedMatchesComponent;
+    [Parameter] public string MatchId { get; set; } = "";
+    private MatchDTO match;
+    private List<EventDTO> events = new();
+    private bool isLoading = true;
+    private HubConnection hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (int.TryParse(MatchId, out int id))
+        {
+            match = await MatchService.GetByIdMatchAsync(id);
+            events = (await EventService.GetEventsByMatchAsync(id)).ToList();
+        }
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/livematchHub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        await hubConnection.StartAsync();
+        isLoading = false;
+    }
+
+    private async Task StartMatch()
+    {
+        match.Status = "Lopend";
+        await MatchService.UpdateMatchAsync(match);
+        await AddEvent(EventType.MatchStarted, null, "Wedstrijd gestart");
+        await hubConnection.InvokeAsync("NotifyMatchUpdate", match);
+    }
+
+    private async Task AddPoint(int playerId)
+    {
+        if (match == null || match.Status != "Lopend") return;
+
+        if (playerId == match.Player1Id) match.Player1Score++;
+        else match.Player2Score++;
+
+        if ((match.Player1Score >= 11 || match.Player2Score >= 11) &&
+            Math.Abs(match.Player1Score - match.Player2Score) >= 2)
+        {
+            var setWinner = match.Player1Score > match.Player2Score ? match.Player1Id : match.Player2Id;
+
+            if (setWinner == match.Player1Id) match.Player1Sets++;
+            else match.Player2Sets++;
+
+            if (match.Player1Sets >= 3 || match.Player2Sets >= 3)
+            {
+                match.Status = "Afgesloten";
+                await AddEvent(EventType.MatchWon, setWinner, $"Match gewonnen {match.Player1Sets}-{match.Player2Sets}");
+            }
+            else
+            {
+                await AddEvent(EventType.SetWon, setWinner, $"Set {match.CurrentSet} gewonnen {match.Player1Score}-{match.Player2Score}");
+                match.Player1Score = match.Player2Score = 0;
+                match.CurrentSet++;
+                await AddEvent(EventType.SetStarted, null, $"Set {match.CurrentSet} gestart");
+            }
+        }
+        else
+        {
+            await AddEvent(EventType.PointScored, playerId, "Punt gescoord");
+        }
+
+        await MatchService.UpdateMatchAsync(match);
+        await hubConnection.InvokeAsync("NotifyMatchUpdate", match);
+    }
+
+    private async Task AddEvent(EventType type, int? playerId, string description)
+    {
+        var e = new EventDTO
+        {
+            MatchId = match.Id,
+            PlayerId = playerId,
+            EventType = type,
+            Description = description,
+            Timestamp = DateTime.UtcNow
+        };
+
+        await EventService.AddEventAsync(e);
+        events.Insert(0, e);
+        await hubConnection.InvokeAsync("NotifyNewEvent", e);
+    }
+
+    private async Task AddSpecialEvent(EventType type, int? playerId)
+    {
+        if (match == null || match.Status != "Lopend") return;
+
+        var desc = type switch
+        {
+            EventType.Timeout => "Timeout genomen",
+            EventType.Fault => "Fout gemaakt",
+            EventType.Let => "Let gespeeld",
+            _ => type.ToString()
+        };
+
+        await AddEvent(type, playerId, desc);
+    }
+
+    private string GetPlayerName(int playerId) => playerId == match.Player1Id ? match.Player1Name : match.Player2Name;
+
+    private string GetEventColor(EventType type) => type switch
+    {
+        EventType.PointScored => "text-success",
+        EventType.SetWon => "text-primary",
+        EventType.MatchWon => "text-success fw-bold",
+        EventType.Timeout => "text-warning",
+        EventType.Fault => "text-secondary",
+        EventType.Let => "text-info",
+        _ => ""
+    };
+
+    private string GetStatusBadgeClass() => match.Status switch
+    {
+        "Gepland" => "bg-secondary",
+        "Lopend" => "bg-primary",
+        "Afgesloten" => "bg-success",
+        _ => "bg-dark"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}

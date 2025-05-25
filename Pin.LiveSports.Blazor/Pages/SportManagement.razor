@@ -1,0 +1,32 @@
+﻿@page "/sportmanagement"
+@using Pin.LiveSports.Core.Entities
+@using Pin.LiveSports.Blazor.Components
+
+<h3>Sport Management</h3>
+
+<div class="btn-group mb-3">
+    <button class="btn @(activeTab == "players" ? "btn-primary" : "btn-secondary")"
+            @onclick="ShowPlayersTab">
+        Players
+    </button>
+    <button class="btn @(activeTab == "tournaments" ? "btn-primary" : "btn-secondary")"
+            @onclick="ShowTournamentsTab">
+        Tournaments
+    </button>
+</div>
+
+@if (activeTab == "players")
+{
+    <PlayerComponent />
+}
+else
+{
+    <TournamentComponent />
+}
+
+@code {
+    private string activeTab = "players";
+
+    private void ShowPlayersTab() => activeTab = "players";
+    private void ShowTournamentsTab() => activeTab = "tournaments";
+}

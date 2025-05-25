@@ -1,0 +1,329 @@
+﻿@page "/fans/{MatchId}"
+@inject NavigationManager Navigation
+@inject IMatchService MatchService
+@inject IEventService EventService
+@implements IAsyncDisposable
+
+@if (isLoading)
+{
+    <div class="alert alert-info">Bezig met laden...</div>
+}
+else if (match == null)
+{
+    <div class="alert alert-danger">Wedstrijd niet gevonden.</div>
+}
+else
+{
+    <div class="container-fluid px-0">
+        <!-- Wedstrijd header -->
+        <div class="match-header bg-light py-3">
+            <div class="container">
+                <div class="row align-items-center">
+                    <div class="col-md-5 text-end">
+                        <h3 class="player-name @(IsLeading(match.Player1Score) ? "fw-bold text-primary" : "")">
+                            @match.Player1Name
+                        </h3>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <div class="score-display">
+                            <span class="badge @GetStatusBadgeClass()">@match.Status</span>
+                            @if (match.Status == "Lopend")
+                            {
+                                <span class="badge bg-danger ms-2">
+                                    LIVE <span class="pulse"></span>
+                                </span>
+                            }
+                        </div>
+                        <div class="current-score">
+                            <span class="fs-1">@match.Player1Score</span>
+                            <span class="fs-1 mx-2">-</span>
+                            <span class="fs-1">@match.Player2Score</span>
+                        </div>
+                        <div class="set-info">
+                            Set @match.CurrentSet | Sets: @match.Player1Sets - @match.Player2Sets
+                        </div>
+                    </div>
+                    <div class="col-md-5 text-start">
+                        <h3 class="player-name @(IsLeading(match.Player2Score) ? "fw-bold text-primary" : "")">
+                            @match.Player2Name
+                        </h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Matchpoint banner -->
+        @if (match.IsMatchPoint)
+        {
+            <div class="alert alert-warning alert-dismissible fade show mb-0 rounded-0 text-center">
+                <strong>MATCHPUNT!</strong> Voor @(match.Player1Score > match.Player2Score ? match.Player1Name : match.Player2Name)
+            </div>
+        }
+
+        <div class="container mt-4">
+            <div class="row">
+                <!-- Linkerkolom - Wedstrijdoverzicht -->
+                <div class="col-lg-4">
+                    <div class="card mb-4">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">Wedstrijdoverzicht</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="match-info">
+                                <p>
+                                    <i class="fas fa-trophy me-2"></i>
+                                    <strong>@match.TournamentName</strong>
+                                </p>
+                                <p>
+                                    <i class="fas fa-map-marker-alt me-2"></i>
+                                    @match.TafelTennisZaal
+                                </p>
+                                <p>
+                                    <i class="fas fa-clock me-2"></i>
+                                    Start: @match.StartTime.ToString("f")
+                                </p>
+                            </div>
+
+                            <hr />
+
+                            <div class="match-stats">
+                                <h6 class="mb-3">Statistieken</h6>
+                                <div class="service-indicator mb-3 p-2 bg-light rounded">
+                                    <i class="fas fa-table-tennis me-2"></i>
+                                    <strong>Service:</strong>
+                                    @((match.Player1Score + match.Player2Score) % 2 == 0 ? match.Player1Name : match.Player2Name)
+                                </div>
+
+                                <div class="row text-center">
+                                    <div class="col-6">
+                                        <div class="stat-box">
+                                            <div class="stat-value">@events.Count(e => e.PlayerId == match.Player1Id && e.EventType == EventType.PointScored)</div>
+                                            <div class="stat-label">Punten @match.Player1Name</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="stat-box">
+                                            <div class="stat-value">@events.Count(e => e.PlayerId == match.Player2Id && e.EventType == EventType.PointScored)</div>
+                                            <div class="stat-label">Punten @match.Player2Name</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row text-center mt-3">
+                                    <div class="col-6">
+                                        <div class="stat-box">
+                                            <div class="stat-value">@events.Count(e => e.EventType == EventType.Let)</div>
+                                            <div class="stat-label">Lets</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="stat-box">
+                                            <div class="stat-value">@events.Count(e => e.EventType == EventType.Timeout)</div>
+                                            <div class="stat-label">Timeouts</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr />
+
+                            <div class="set-history">
+                                <h6 class="mb-3">Set Geschiedenis</h6>
+                                @for (int i = 1; i < match.CurrentSet; i++)
+                                {
+                                    <div class="set-result mb-2">
+                                        <span class="badge bg-secondary me-2">Set @i</span>
+                                        <span>@GetSetResult(i)</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rechterkolom - Live verslag -->
+                <div class="col-lg-8">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0">Live Verslag</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            @if (!events.Any())
+                            {
+                                <div class="p-4 text-center text-muted">
+                                    Nog geen gebeurtenissen. De wedstrijd start binnenkort.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="commentary-feed">
+                                    @foreach (var e in events.OrderByDescending(e => e.Timestamp))
+                                    {
+                                        <div class="commentary-item @e.EventType.ToString().ToLower()">
+                                            <div class="commentary-timestamp">
+                                                @e.Timestamp.ToLocalTime().ToString("HH:mm")
+                                            </div>
+                                            <div class="commentary-content">
+                                                <div class="commentary-event-type">
+                                                    @GetEventTypeDisplay(e.EventType)
+                                                </div>
+                                                <div class="commentary-text">
+                                                    @GetCommentaryText(e)
+                                                </div>
+                                            </div>
+                                            <div class="commentary-icon">
+                                                @GetEventIcon(e.EventType)
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string MatchId { get; set; }
+
+    private MatchDTO match;
+    private List<EventDTO> events = new();
+    private HubConnection hubConnection;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (int.TryParse(MatchId, out int id))
+        {
+            try
+            {
+                match = await MatchService.GetByIdMatchAsync(id);
+                events = (await EventService.GetEventsByMatchAsync(id)).ToList();
+            }
+            finally
+            {
+                isLoading = false;
+            }
+        }
+        else
+        {
+            isLoading = false;
+        }
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("liveMatchHub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<MatchDTO>("ReceiveMatchUpdate", (updatedMatch) =>
+        {
+            InvokeAsync(() =>
+            {
+                match = updatedMatch;
+                StateHasChanged();
+            });
+        });
+
+        hubConnection.On<EventDTO>("ReceiveNewEvent", (newEvent) =>
+        {
+            InvokeAsync(() =>
+            {
+                events.Insert(0, newEvent);
+                StateHasChanged();
+            });
+        });
+
+        await hubConnection.StartAsync();
+        await hubConnection.InvokeAsync("JoinMatchGroup", int.Parse(MatchId));
+    }
+
+    private string GetPlayerName(int playerId) =>
+        playerId == match.Player1Id ? match.Player1Name : match.Player2Name;
+
+    private bool IsLeading(int score) =>
+        score == Math.Max(match.Player1Score, match.Player2Score);
+
+    private string GetEventTypeDisplay(EventType type) =>
+        type switch
+        {
+            EventType.PointScored => "PUNT",
+            EventType.SetWon => "SET GEWONNEN",
+            EventType.MatchWon => "MATCH GEWONNEN",
+            EventType.Timeout => "TIMEOUT",
+            EventType.Let => "LET",
+            EventType.Fault => "FOUT",
+            EventType.MatchStarted => "WEDSTRIJD START",
+            _ => type.ToString()
+        };
+
+    private string GetStatusBadgeClass() =>
+        match.Status switch
+        {
+            "Lopend" => "bg-success",
+            "Gepland" => "bg-warning text-dark",
+            "Afgesloten" => "bg-secondary",
+            _ => "bg-info"
+        };
+
+    private string GetEventIcon(EventType type) =>
+        type switch
+        {
+            EventType.PointScored => "🏓",
+            EventType.SetWon => "🎉",
+            EventType.MatchWon => "🏆",
+            EventType.Timeout => "⏱️",
+            EventType.Let => "🔄",
+            EventType.Fault => "❌",
+            EventType.MatchStarted => "🔔",
+            _ => "ℹ️"
+        };
+
+    private string GetCommentaryText(EventDTO e)
+    {
+        return e.EventType switch
+        {
+            EventType.PointScored => $"{GetPlayerName(e.PlayerId.Value)} scoort een punt na een {GetRandomAdjective()} rally! " +
+                                    $"Stand: {match.Player1Score}-{match.Player2Score}",
+            EventType.SetWon => $"{GetPlayerName(e.PlayerId.Value)} wint de set met {GetSetScore()}! " +
+                              $"Sets: {match.Player1Sets}-{match.Player2Sets}",
+            EventType.MatchWon => $"{GetPlayerName(e.PlayerId.Value)} WINT DE MATCH met {match.Player1Sets}-{match.Player2Sets} sets!",
+            EventType.Timeout => $"{GetPlayerName(e.PlayerId.Value)} neemt een timeout",
+            EventType.Let => $"Let! De service wordt overgedaan",
+            EventType.Fault => $"{GetPlayerName(e.PlayerId.Value)} maakt een fout",
+            EventType.MatchStarted => "De wedstrijd is begonnen!",
+            _ => e.Description
+        };
+    }
+
+    private string GetRandomAdjective()
+    {
+        var adjectives = new[] { "lange", "spectaculaire", "snelle", "spannende", "intense" };
+        return adjectives[new Random().Next(adjectives.Length)];
+    }
+
+    private string GetSetResult(int setNumber)
+    {
+        // Implementeer logica om setresultaten op te halen
+        // Voorbeeld, vervang met echte data
+        var player1SetScore = match.Player1Sets;
+        var player2SetScore = match.Player2Sets;
+        return $"{player1SetScore}-{player2SetScore}";
+
+    }
+
+    private string GetSetScore()
+    {
+        return $"{match.Player1Score}-{match.Player2Score}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
