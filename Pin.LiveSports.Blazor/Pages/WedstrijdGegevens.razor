@@ -1,0 +1,190 @@
+﻿@page "/wedstrijdgegevens"
+@inject IMatchService MatchService
+@inject ITournamentService TournamentService
+@inject IPlayerService PlayerService
+@inject NavigationManager Navigation
+@using Pin.LiveSports.Blazor.Components
+
+<h3>🏓 Nieuwe Wedstrijd Plannen</h3>
+
+@if (isLoading)
+{
+    <div class="alert alert-info">Bezig met laden...</div>
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+<EditForm Model="@newMatch" OnValidSubmit="@HandleSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label class="form-label">Toernooi *</label>
+        <select class="form-select" value="@newMatch.TournamentId" @onchange="OnTournamentChanged">
+            <option value="0">-- Selecteer toernooi --</option>
+            @foreach (var tournament in tournaments)
+            {
+                <option value="@tournament.Id">@tournament.Name</option>
+            }
+        </select>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="form-label">Speler 1 *</label>
+            <select class="form-select" @bind="newMatch.Player1Id" disabled="@(tournamentPlayers.Count == 0)">
+                <option value="0">-- Selecteer speler --</option>
+                @foreach (var player in tournamentPlayers.Where(p => p.Id != newMatch.Player2Id))
+                {
+                    <option value="@player.Id">@player.Name (@player.Country)</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Speler 2 *</label>
+            <select class="form-select" @bind="newMatch.Player2Id" disabled="@(tournamentPlayers.Count == 0)">
+                <option value="0">-- Selecteer speler --</option>
+                @foreach (var player in tournamentPlayers.Where(p => p.Id != newMatch.Player1Id))
+                {
+                    <option value="@player.Id">@player.Name (@player.Country)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Locatie *</label>
+        <input type="text" class="form-control" @bind="newMatch.TafelTennisZaal"
+               placeholder="Bijv.: Sporthal De Voorbeeld" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Starttijd *</label>
+        <input type="datetime-local" class="form-control" @bind="newMatch.StartTime" />
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mt-4">
+        <button type="button" class="btn btn-secondary" @onclick="ResetForm">
+            Annuleren
+        </button>
+        <button type="submit" class="btn btn-primary"
+                disabled="@(isSubmitting || newMatch.Player1Id == 0 || newMatch.Player2Id == 0)">
+            @if (isSubmitting)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+                <span> Bezig...</span>
+            }
+            else
+            {
+                <span>Wedstrijd Opslaan</span>
+            }
+        </button>
+    </div>
+</EditForm>
+
+<hr />
+
+<PlannedMatches @ref="plannedMatchesComponent" />
+
+@code {
+    private PlannedMatches? plannedMatchesComponent;
+    private MatchDTO newMatch = new()
+    {
+        StartTime = DateTime.Now,
+        Status = "Gepland",
+        Player1Score = 0,
+        Player2Score = 0,
+        CurrentSet = 1
+    };
+    private List<TournamentDTO> tournaments = new();
+    private List<PlayerDTO> tournamentPlayers = new();
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            tournaments = (await TournamentService.GetAllTournamentAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Fout bij laden: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnTournamentChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int tournamentId) && tournamentId > 0)
+        {
+            try
+            {
+                tournamentPlayers = (await PlayerService.GetPlayersByTournamentAsync(tournamentId)).ToList();
+                newMatch.TournamentId = tournamentId;
+                newMatch.Player1Id = 0;
+                newMatch.Player2Id = 0;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Fout bij laden spelers: {ex.Message}";
+                tournamentPlayers.Clear();
+            }
+        }
+        else
+        {
+            tournamentPlayers.Clear();
+        }
+        StateHasChanged();
+    }
+
+    private async Task HandleSubmit()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+
+        if (newMatch.Player1Id == newMatch.Player2Id)
+        {
+            errorMessage = "Selecteer verschillende spelers";
+            isSubmitting = false;
+            return;
+        }
+
+        try
+        {
+            await MatchService.AddMatchAsync(newMatch);
+            if (plannedMatchesComponent is not null)
+            {
+                await plannedMatchesComponent.RefreshMatches();
+            }
+            ResetForm();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Fout bij opslaan: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void ResetForm()
+    {
+        newMatch = new()
+        {
+            StartTime = DateTime.Now,
+            Status = "Gepland",
+            Player1Score = 0,
+            Player2Score = 0,
+            CurrentSet = 1
+        };
+        tournamentPlayers.Clear();
+    }
+}
