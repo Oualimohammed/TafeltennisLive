@@ -30,7 +30,7 @@ namespace Pin.LiveSports.Blazor.Data
                 .HasOne(m => m.Tournament)
                 .WithMany(t => t.Matches)
                 .HasForeignKey(m => m.TournamentId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Cascade); // restrict naar cascade 
 
             modelBuilder.Entity<Match>()
                 .HasOne(m => m.Player1)
